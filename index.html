@@ -424,6 +424,10 @@
         submitToGoogleSheets(playerName, scores, attempts, average);
       };
 
+      const handleRetry = () => {
+        setGameState('playing');
+      };
+
       const generateUUID = () => {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
           return crypto.randomUUID();
