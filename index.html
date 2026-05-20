@@ -219,7 +219,7 @@
       return { code, annotation, highlights, wordCount };
     };
 
-    // --- REAC ERROR BOUNDARY CLASS COMPONENT ---
+    // --- REACT ERROR BOUNDARY CLASS COMPONENT ---
     class ErrorBoundary extends React.Component {
       constructor(props) {
         super(props);
@@ -338,9 +338,15 @@
         minimumWords: 10
       };
 
-      const handleStart = () => setGameState('playing');
+      // --- HIGHLY COMPATIBLE HOISTED ACTION HANDLERS ---
+      // Converted to traditional standard function declarations to completely resolve
+      // reference initialization bugs in Babel/Babel standalone transpiling engines.
 
-      const handleSubmit = () => {
+      function handleStart() {
+        setGameState('playing');
+      }
+
+      function handleSubmit() {
         const result = evaluateResponse(playerInput, currentStage);
         setEvaluation(result);
         
@@ -350,7 +356,11 @@
         }));
 
         setGameState('evaluating');
-      };
+      }
+
+      function handleRetry() {
+        setGameState('playing');
+      }
 
       const submitToGoogleSheets = async (name, finalScores, currentAttempts, average) => {
         if (!GOOGLE_SHEET_WEB_APP_URL) return;
@@ -381,7 +391,7 @@
         }
       };
 
-      const handleNextStage = () => {
+      function handleNextStage() {
         const newScores = { ...scores, [currentStage.id]: evaluation.code };
         setScores(newScores);
 
@@ -396,9 +406,9 @@
           const average = total / STAGES.length || 0;
           submitToGoogleSheets(playerName, newScores, attempts, average);
         }
-      };
+      }
 
-      const handleSkipStage = () => {
+      function handleSkipStage() {
         const newScores = { ...scores, [currentStage.id]: 10 };
         setScores(newScores);
         
@@ -416,17 +426,13 @@
           const average = total / STAGES.length || 0;
           submitToGoogleSheets(playerName, newScores, attempts, average);
         }
-      };
+      }
 
-      const handleManualSubmit = () => {
+      function handleManualSubmit() {
         const total = Object.values(scores).reduce((a, b) => a + b, 0);
         const average = total / STAGES.length || 0;
         submitToGoogleSheets(playerName, scores, attempts, average);
-      };
-
-      const handleRetry = () => {
-        setGameState('playing');
-      };
+      }
 
       const generateUUID = () => {
         if (typeof crypto !== 'undefined' && crypto.randomUUID) {
