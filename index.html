@@ -44,7 +44,8 @@
         appId: "1:12345:web:12345"
       };
 
-      const app = firebase.initializeApp(firebaseConfig);
+      // Safely handle hot-reloads and duplicate initializations
+      const app = firebase.apps.length > 0 ? firebase.app() : firebase.initializeApp(firebaseConfig);
       auth = firebase.auth();
       db = firebase.firestore();
       isFirebaseActive = true;
@@ -251,7 +252,18 @@
         }
       }, [user]);
 
-      const currentStage = STAGES[currentStageIndex];
+      // Bulletproof guard for out-of-range stage indices
+      const currentStage = STAGES[currentStageIndex] || STAGES[0] || {
+        id: 1,
+        npc: "🧙‍♂️ Master Scribe",
+        setting: "The Library of Lexicon",
+        story: "Welcome, apprentice. Explain your thoughts.",
+        readingText: "Read carefully.",
+        question: "Answer the prompt.",
+        type: "Short Answer",
+        keywords: [],
+        minimumWords: 10
+      };
 
       const handleStart = () => setGameState('playing');
 
@@ -439,7 +451,7 @@
                 )}
                 
                 <div className="bg-amber-100 border-2 border-amber-300 p-4 rounded-xl flex gap-4 items-start shadow-inner">
-                  <div className="text-5xl">{currentStage.npc.split(' ')[0]}</div>
+                  <div className="text-5xl">{(currentStage.npc || "🧙‍♂️").split(' ')[0]}</div>
                   <div>
                     <h3 className="font-bold text-amber-900 text-xl">{currentStage.npc} <span className="text-sm font-normal text-amber-700">({currentStage.setting})</span></h3>
                     <p className="italic text-stone-700 mt-1">"{currentStage.story}"</p>
