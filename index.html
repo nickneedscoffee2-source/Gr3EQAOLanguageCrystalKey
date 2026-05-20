@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quest for the Crystal Pen</title>
+  
+  <!-- React and Babel CDNs to run React directly in the browser -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Tailwind CSS CDN for styling -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Firebase Compat CDNs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-stone-900 text-stone-100 font-sans min-h-screen">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- FIREBASE INITIALIZATION WITH SAFE OFFLINE FALLBACK ---
+    let auth;
+    let db;
+    let isFirebaseActive = false;
+
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    const GOOGLE_SHEET_WEB_APP_URL = "https://script.google.com/macros/s/AKfycby0xauwNsAR6o6JRx41D8w5g7YIQYLrYs3Xy4JtDArQ2Dn7gEgQVWIDN2PKu7AQcuwWiQ/exec";
+
+    try {
+      const hasRealConfig = typeof __firebase_config !== 'undefined' && __firebase_config;
+      const firebaseConfig = hasRealConfig ? JSON.parse(__firebase_config) : {
+        apiKey: "dummy-key-to-prevent-sdk-initialization-errors",
+        authDomain: "dummy-domain.firebaseapp.com",
+        projectId: "dummy-project",
+        storageBucket: "dummy-bucket",
+        messagingSenderId: "12345",
+        appId: "1:12345:web:12345"
+      };
+
+      const app = firebase.initializeApp(firebaseConfig);
+      auth = firebase.auth();
+      db = firebase.firestore();
+      isFirebaseActive = true;
+    } catch (e) {
+      console.warn("Firebase failed to initialize. Falling back to standard browser storage mode.", e);
+      
+      // Define resilient Mock API fallback objects to prevent application crashes
+      auth = {
+        signInAnonymously: () => Promise.resolve({ user: { uid: "local-offline-user" } })
+      };
+      db = {
+        collection: () => ({
+          doc: () => ({
+            collection: () => ({
+              doc: () => ({
+                collection: () => ({
+                  doc: () => ({
+                    get: () => Promise.resolve({ exists: false, data: () => ({}) }),
+                    set: () => Promise.resolve()
+                  })
+                })
+              })
+            })
+          })
+        })
+      };
+    }
+
+    // --- GAME DATA ---
+    const STAGES = [
+      {
+        id: 1,
+        npc: "🧙‍♂️ Master Scribe",
+        setting: "The Library of Lexicon",
+        story: "Welcome, young apprentice. To wield the magical Crystal Pen, you must first prove you can read carefully and explain your thoughts. Read this ancient tablet and answer my question.",
+        readingText: "The village of Lexicon is guarded by a giant stone golem named Bolder. Bolder never sleeps and watches over the village day and night, protecting it from monsters. He loves when villagers tell him stories. If a villager tells a good story, Bolder will happily open the gate for them.",
+        question: "Why is Bolder a good guardian for the village of Lexicon? Use details from the text to support your answer.",
+        type: "Short Answer",
+        keywords: ["never", "sleep", "sleeps", "watch", "watches", "day", "night", "protect", "protecting", "monster", "monsters", "story", "stories", "gate"],
+        minimumWords: 15
+      },
+      {
+        id: 2,
+        npc: "🧌 The Bridge Troll",
+        setting: "The Chasm of Choices",
+        story: "Halt! None shall pass my bridge without answering my riddle! It's not a riddle of facts, but of choice! Let me see how well you can organize a paragraph.",
+        readingText: "In the cave of wonders, you find a magic carpet. The carpet has two modes. It can either fly very high in the sky, up into the clouds where the eagles soar, or it can move very fast along the ground, faster than a racing horse.",
+        question: "Would you rather be able to move very fast or fly very high? Write a paragraph explaining which you would choose and why.",
+        type: "Paragraph Response",
+        keywords: ["fast", "high", "choose", "rather", "fly", "move", "because", "would", "eagles", "clouds", "horse", "ground", "sky"],
+        minimumWords: 25
+      },
+      {
+        id: 3,
+        npc: "👑 The Queen of Letters",
+        setting: "The Royal Castle",
+        story: "You have arrived! To earn your Crystal Pen, you must complete one final short writing task.",
+        readingText: "Every year, the school holds a 'Backwards Day'. On this day, students wear their clothes backwards, eat dinner for breakfast, and walk backwards in the halls. It is very silly, but it helps students learn to look at the world from a different point of view.",
+        question: "Do you think 'Backwards Day' is a good idea for a school? Explain why or why not using your own ideas and the text.",
+        type: "Short Answer",
+        keywords: ["backwards", "day", "clothes", "dinner", "breakfast", "walk", "silly", "learn", "point", "view", "idea", "think", "because", "fun"],
+        minimumWords: 20
+      },
+      {
+        id: 4,
+        npc: "🧚‍♀️ The Whispering Sylph",
+        setting: "The Enchanted Grove",
+        story: "Listen closely! The trees have secrets to share. Let's see if you can understand their whispers.",
+        readingText: "The Whispering Pine is the oldest tree in the forest. Its needles don't just rustle in the wind; they hum a soft, magical tune. Animals gather around it when it hums because the sound makes plants grow faster and heals small scrapes and bruises.",
+        question: "Why do animals like to gather around the Whispering Pine? Use details from the text to explain.",
+        type: "Short Answer",
+        keywords: ["hum", "hums", "tune", "magical", "plants", "grow", "faster", "heals", "scrapes", "bruises", "sound", "because", "pine", "tree"],
+        minimumWords: 15
+      },
+      {
+        id: 5,
+        npc: "🧙‍♀️ The Grand Mage",
+        setting: "The Apex Tower",
+        story: "This is your final test to prove you are a Master Writer. Show me your best organizational skills!",
+        readingText: "Every wizard needs a familiar—a magical animal companion. Some wizards choose a wise owl that can deliver messages across great distances. Others choose a fiery salamander that can keep them warm and light their potions on fire.",
+        question: "If you were a wizard, would you rather have an owl or a salamander as your familiar? Write a paragraph explaining your choice.",
+        type: "Paragraph Response",
+        keywords: ["owl", "salamander", "choose", "rather", "because", "messages", "distances", "warm", "light", "fire", "potions", "familiar", "would"],
+        minimumWords: 25
+      }
+    ];
+
+    const TRANSITION_WORDS = ["because", "first", "next", "then", "finally", "also", "another", "so", "but", "however", "therefore", "and"];
+
+    // --- SIMULATED EQAO GRADER ---
+    const evaluateResponse = (text, stage) => {
+      const cleanText = text.trim();
+      const words = cleanText.split(/\s+/).filter(w => w.length > 0);
+      const wordCount = words.length;
+      
+      if (wordCount === 0) return { code: 'B', annotation: "Blank: nothing written.", level: 0, highlights: ["You need to write an answer to continue."] };
+
+      const sentences = cleanText.split(/[.!?]+/).filter(s => s.trim().length > 0);
+      const sentenceCount = sentences.length;
+      const lowerText = cleanText.toLowerCase();
+
+      const keywordHits = stage.keywords.filter(k => lowerText.includes(k)).length;
+      const usedTransitions = TRANSITION_WORDS.filter(t => lowerText.includes(t));
+      const hasTransitions = usedTransitions.length > 0;
+
+      // Tightened Scoring: Check for unrelated responses
+      if (keywordHits === 0 && wordCount > 5) {
+        return { 
+          code: 10, 
+          annotation: "Code 10: The response is off-topic or unrelated to the reading text. It does not use specific details to answer the prompt.", 
+          highlights: [
+            "Topic Development: Your answer doesn't seem to match the question. Make sure to use details from the reading text!",
+            "Tip: Try to use part of the question in your response."
+          ], 
+          wordCount 
+        };
+      }
+
+      let highlights = [];
+      if (wordCount < 10) {
+        highlights.push("Write more! Try adding more details from the text to explain your ideas.");
+      }
+      if (keywordHits === 0 && wordCount <= 5) {
+        highlights.push("Tip: Try to use part of the question in your response.");
+      }
+      if (!hasTransitions && wordCount >= 10) {
+        highlights.push("Organization: Your ideas are a bit disconnected. Try using transition words like 'because', 'also', or 'first' to link your thoughts together.");
+      }
+      if (keywordHits < 2 && wordCount >= 10) {
+        highlights.push("Topic Development: You need to use more specific details from the reading text to prove your point.");
+      }
+      if (sentenceCount < 2 && wordCount > 15) {
+        highlights.push("Conventions: That looks like one giant run-on sentence! Remember to use periods (.) to separate your ideas.");
+      }
+
+      let code = 10;
+      let annotation = "";
+
+      if (wordCount < 10 || keywordHits === 0) {
+        code = 10;
+        annotation = "Code 10: The response is not developed. The ideas and information are limited and unclear. Organization is random with few links.";
+      } else if (wordCount >= 10 && (!hasTransitions || keywordHits < 2) && wordCount < 30) {
+        code = 20;
+        annotation = "Code 20: The response is minimally developed with few ideas and little information. Organization is minimal with weak links between ideas.";
+      } else if (wordCount >= stage.minimumWords && hasTransitions && keywordHits >= 2) {
+        if (wordCount >= (stage.minimumWords + 10) && usedTransitions.length >= 2 && keywordHits >= 3 && sentenceCount >= 2) {
+          code = 40;
+          annotation = "Code 40: The response has a clear focus and is well-developed with sufficient specific and relevant ideas. Organization is logical with effective links.";
+        } else {
+          code = 30;
+          annotation = "Code 30: The response has a clear focus and is adequately developed with ideas and supporting details. Organization is simple with adequate links between ideas.";
+        }
+      } else {
+        code = 20;
+        annotation = "Code 20: The response has some length, but it is missing key details from the text or clear links (transition words) between ideas.";
+      }
+
+      return { code, annotation, highlights, wordCount };
+    };
+
+    // --- MAIN REACT COMPONENT ---
+    function App() {
+      const [gameState, setGameState] = useState('start');
+      const [currentStageIndex, setCurrentStageIndex] = useState(0);
+      const [playerInput, setPlayerInput] = useState("");
+      const [evaluation, setEvaluation] = useState(null);
+
+      const [user, setUser] = useState(null);
+      const [playerName, setPlayerName] = useState("");
+      const [attempts, setAttempts] = useState({});
+      const [scores, setScores] = useState({});
+      const [skippedStages, setSkippedStages] = useState({});
+      const [sessionId, setSessionId] = useState(null);
+      const [shareLink, setShareLink] = useState("");
+
+      const [sheetStatus, setSheetStatus] = useState('idle');
+
+      // Auth Setup
+      useEffect(() => {
+        auth.signInAnonymously().then(cred => {
+          setUser(cred.user);
+        }).catch(err => console.error("Anonymous sign-in failed", err));
+      }, []);
+
+      // Load Session
+      useEffect(() => {
+        if (!user || !isFirebaseActive) return;
+        const urlParams = new URLSearchParams(window.location.search);
+        const sessionFromUrl = urlParams.get('session');
+        if (sessionFromUrl) {
+          db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(sessionFromUrl)
+            .get().then(docSnap => {
+              if (docSnap.exists) {
+                const data = docSnap.data();
+                setGameState(data.gameState);
+                setCurrentStageIndex(data.currentStageIndex);
+                setAttempts(data.attempts || {});
+                setScores(data.scores || {});
+                if (data.skippedStages) setSkippedStages(data.skippedStages);
+                if (data.playerName) setPlayerName(data.playerName);
+                setSessionId(sessionFromUrl);
+              }
+            }).catch(e => console.error(e));
+        }
+      }, [user]);
+
+      const currentStage = STAGES[currentStageIndex];
+
+      const handleStart = () => setGameState('playing');
+
+      const handleSubmit = () => {
+        const result = evaluateResponse(playerInput, currentStage);
+        setEvaluation(result);
+        
+        setAttempts(prev => ({
+          ...prev,
+          [currentStage.id]: (prev[currentStage.id] || 0) + 1
+        }));
+
+        setGameState('evaluating');
+      };
+
+      const submitToGoogleSheets = async (name, finalScores, currentAttempts, average) => {
+        if (!GOOGLE_SHEET_WEB_APP_URL) return;
+        setSheetStatus('sending');
+        try {
+          const payload = {
+            playerName: name,
+            stage1Score: finalScores[1] || 0,
+            stage2Score: finalScores[2] || 0,
+            stage3Score: finalScores[3] || 0,
+            stage4Score: finalScores[4] || 0,
+            stage5Score: finalScores[5] || 0,
+            totalAttempts: Object.values(currentAttempts).reduce((a,b)=>a+b, 0),
+            overallAverage: average.toFixed(1)
+          };
+          
+          await fetch(GOOGLE_SHEET_WEB_APP_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(payload)
+          });
+          
+          setSheetStatus('success');
+        } catch (e) {
+          console.error(e);
+          setSheetStatus('error');
+        }
+      };
+
+      const handleNextStage = () => {
+        const newScores = { ...scores, [currentStage.id]: evaluation.code };
+        setScores(newScores);
+
+        if (currentStageIndex + 1 < STAGES.length) {
+          setCurrentStageIndex(currentStageIndex + 1);
+          setPlayerInput("");
+          setEvaluation(null);
+          setGameState('playing');
+        } else {
+          setGameState('victory');
+          const total = Object.values(newScores).reduce((a, b) => a + b, 0);
+          const average = total / STAGES.length || 0;
+          submitToGoogleSheets(playerName, newScores, attempts, average);
+        }
+      };
+
+      const handleSkipStage = () => {
+        const newScores = { ...scores, [currentStage.id]: 10 };
+        setScores(newScores);
+        
+        const newSkipped = { ...skippedStages, [currentStage.id]: true };
+        setSkippedStages(newSkipped);
+
+        if (currentStageIndex + 1 < STAGES.length) {
+          setCurrentStageIndex(currentStageIndex + 1);
+          setPlayerInput("");
+          setEvaluation(null);
+          setGameState('playing');
+        } else {
+          setGameState('victory');
+          const total = Object.values(newScores).reduce((a, b) => a + b, 0);
+          const average = total / STAGES.length || 0;
+          submitToGoogleSheets(playerName, newScores, attempts, average);
+        }
+      };
+
+      const handleManualSubmit = () => {
+        const total = Object.values(scores).reduce((a, b) => a + b, 0);
+        const average = total / STAGES.length || 0;
+        submitToGoogleSheets(playerName, scores, attempts, average);
+      };
+
+      const generateUUID = () => {
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+          return crypto.randomUUID();
+        }
+        return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+      };
+
+      const handleSaveAndShare = async () => {
+        if (!user) return;
+        const newSessionId = sessionId || generateUUID();
+        const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(newSessionId);
+        
+        try {
+          await docRef.set({
+            gameState,
+            currentStageIndex,
+            attempts,
+            scores,
+            skippedStages,
+            playerName,
+            updatedAt: new Date().toISOString()
+          });
+          setSessionId(newSessionId);
+          const newUrl = `${window.location.origin}${window.location.pathname}?session=${newSessionId}`;
+          setShareLink(newUrl);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+
+      const calculateOverall = () => {
+        const total = Object.values(scores).reduce((a, b) => a + b, 0);
+        const average = total / STAGES.length || 0;
+        return { total, average, isLevel4: average >= 35 };
+      };
+
+      return (
+        <div className="max-w-4xl w-full bg-stone-100 text-stone-900 rounded-2xl shadow-2xl overflow-hidden border-4 border-amber-900 mx-auto my-8">
+          <header className="bg-amber-900 text-amber-50 p-4 text-center border-b-4 border-amber-700">
+            <h1 className="text-3xl font-extrabold tracking-wider">✍️ Quest for the Crystal Pen</h1>
+            <p className="text-amber-300 text-sm mt-1">Ontario EQAO Grade 3 Writing Simulator</p>
+          </header>
+
+          <div className="p-6 md:p-8">
+            {gameState === 'start' && (
+              <div className="text-center space-y-6 py-12">
+                <div className="text-6xl mb-4">🏰</div>
+                <h2 className="text-4xl font-bold text-amber-900">Welcome to Lexicon!</h2>
+                <p className="text-lg text-stone-600 max-w-2xl mx-auto leading-relaxed">
+                  You are a young scribe on a quest to become a Master Writer. To succeed, you must travel the land, read carefully, and write strong responses! 
+                  <br/><br/>
+                  Your writing will be scored using the magic of the <strong>EQAO Scoring Guide</strong>. You must achieve a <strong>Score of 30</strong> (Level 3) or higher to pass each trial!
+                </p>
+                <div className="flex justify-center gap-4 flex-col items-center">
+                  <div className="mb-4 bg-white p-6 rounded-xl border border-stone-200 shadow-sm">
+                    <label className="block text-amber-900 font-bold mb-3 text-xl">Enter your name to begin:</label>
+                    <input 
+                      type="text" 
+                      value={playerName} 
+                      onChange={(e) => setPlayerName(e.target.value)}
+                      className="px-4 py-3 border-4 border-amber-300 rounded-xl text-xl text-center focus:outline-none focus:border-amber-500 shadow-inner w-64 text-stone-900"
+                      placeholder="Student Name"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleStart} 
+                    disabled={!playerName.trim()}
+                    className="px-6 py-3 rounded-lg font-bold text-lg shadow-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Begin Your Quest
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {gameState === 'playing' && (
+              <div className="space-y-6">
+                <div className="flex gap-2 mb-6">
+                  {STAGES.map((stage, idx) => (
+                    <div 
+                      key={stage.id} 
+                      className={`h-3 flex-1 rounded-full ${idx < currentStageIndex ? 'bg-green-500' : idx === currentStageIndex ? 'bg-yellow-400 animate-pulse' : 'bg-gray-300'}`}
+                    />
+                  ))}
+                </div>
+
+                <div className="self-end mt-1 text-right flex gap-2 justify-end">
+                  <button onClick={handleSaveAndShare} className="text-sm bg-stone-200 text-stone-700 px-3 py-1 rounded hover:bg-stone-300 shadow-sm transition-colors font-bold">
+                    💾 Save Progress
+                  </button>
+                </div>
+
+                {shareLink && (
+                  <div className="bg-green-50 border border-green-200 p-3 rounded-lg mb-4 text-center">
+                    <p className="text-sm text-green-800 font-bold mb-1">Your game is saved! Copy this link to resume later:</p>
+                    <input type="text" readOnly value={shareLink} className="w-full p-2 text-sm border rounded bg-white text-stone-800 focus:outline-none" onClick={e => e.target.select()} />
+                  </div>
+                )}
+                
+                <div className="bg-amber-100 border-2 border-amber-300 p-4 rounded-xl flex gap-4 items-start shadow-inner">
+                  <div className="text-5xl">{currentStage.npc.split(' ')[0]}</div>
+                  <div>
+                    <h3 className="font-bold text-amber-900 text-xl">{currentStage.npc} <span className="text-sm font-normal text-amber-700">({currentStage.setting})</span></h3>
+                    <p className="italic text-stone-700 mt-1">"{currentStage.story}"</p>
+                  </div>
+                </div>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="bg-white p-5 rounded-xl border border-stone-300 shadow-sm">
+                      <h4 className="font-bold text-stone-500 uppercase text-xs mb-2 tracking-wider">📖 Reading Text</h4>
+                      <p className="text-stone-800 leading-relaxed text-lg">{currentStage.readingText}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 flex flex-col">
+                    <div className="bg-blue-50 p-5 rounded-xl border border-blue-200 shadow-sm">
+                      <h4 className="font-bold text-blue-500 uppercase text-xs mb-2 tracking-wider">❓ Task: {currentStage.type}</h4>
+                      <p className="font-bold text-blue-900 text-lg">{currentStage.question}</p>
+                    </div>
+
+                    <div className="flex-grow flex flex-col relative">
+                      <textarea 
+                        className="w-full flex-grow p-4 rounded-xl border-2 border-stone-300 focus:border-amber-500 text-lg resize-none min-h-[200px] text-stone-900"
+                        placeholder="Type your response here..."
+                        value={playerInput}
+                        onChange={(e) => setPlayerInput(e.target.value)}
+                      ></textarea>
+                      <div className="absolute bottom-3 right-3 text-xs font-bold text-stone-400">
+                        Words: {playerInput.trim().split(/\s+/).filter(w=>w.length>0).length} | Attempts: {attempts[currentStage.id] || 0}
+                      </div>
+                    </div>
+                    <button onClick={handleSubmit} className="px-6 py-3 rounded-lg font-bold text-lg bg-blue-600 text-white hover:bg-blue-700">
+                      Submit Answer 🪶
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {gameState === 'evaluating' && evaluation && (
+              <div className="space-y-8 py-4">
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-bold text-stone-800">The Scroll is Graded!</h2>
+                  <p className="text-stone-600">The magical assessors have reviewed your work.</p>
+                </div>
+
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="col-span-1 bg-white rounded-2xl border-4 border-stone-200 p-6 flex flex-col items-center justify-center text-center shadow-lg relative overflow-hidden">
+                    <div className={`absolute top-0 w-full h-3 ${evaluation.code >= 30 ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                    <span className="uppercase text-stone-400 font-bold tracking-widest text-sm mb-2">Rubric Score</span>
+                    <span className={`text-7xl font-extrabold ${evaluation.code === 40 ? 'text-purple-600' : evaluation.code === 30 ? 'text-green-600' : evaluation.code === 20 ? 'text-amber-500' : 'text-red-500'}`}>
+                      {evaluation.code}
+                    </span>
+                    <div className="mt-4 inline-block px-3 py-1 bg-stone-100 rounded-full text-sm font-semibold text-stone-600 border border-stone-200">
+                      Level {evaluation.code / 10}
+                    </div>
+                  </div>
+
+                  <div className="col-span-2 space-y-4">
+                    <div className="bg-amber-50 rounded-xl p-5 border-l-4 border-amber-500 shadow-sm">
+                      <h4 className="font-bold text-amber-900 uppercase text-xs tracking-wider mb-2">📜 Official EQAO Annotation</h4>
+                      <p className="text-amber-900 font-medium italic">{evaluation.annotation}</p>
+                    </div>
+
+                    <div className="bg-white rounded-xl p-5 border border-stone-200 shadow-sm">
+                      <h4 className="font-bold text-stone-500 uppercase text-xs tracking-wider mb-3">🔍 Teacher's Feedback</h4>
+                      {evaluation.highlights.length > 0 ? (
+                        <ul className="space-y-3">
+                          {evaluation.highlights.map((highlight, i) => (
+                            <li key={i} className="flex gap-3 text-stone-700 bg-red-50 p-3 rounded-lg border border-red-100">
+                              <span className="text-red-500 font-bold">↳</span> {highlight}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="flex gap-3 text-green-700 bg-green-50 p-3 rounded-lg border border-green-100 font-medium">
+                           <span className="text-green-500 font-bold">✓</span> Brilliant work! Your writing is focused, well-organized, and uses excellent details from the text!
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-stone-50 p-4 rounded-lg border border-stone-200">
+                   <h4 className="font-bold text-stone-500 uppercase text-xs tracking-wider mb-2">Your Writing:</h4>
+                   <p className="text-stone-800 text-lg leading-relaxed whitespace-pre-wrap">{playerInput || "[No Response]"}</p>
+                </div>
+
+                <div className="flex flex-col items-center justify-center pt-4 border-t border-stone-200 space-y-4">
+                  {evaluation.code >= 30 ? (
+                    <button onClick={handleNextStage} className="px-6 py-3 rounded-lg font-bold text-lg bg-green-600 text-white hover:bg-green-700 shadow-md">
+                      Level Passed! Continue Quest ➔
+                    </button>
+                  ) : (
+                    <div className="text-center space-y-4 w-full">
+                      <p className="text-red-600 font-bold">You need a Score of 30 to pass. Use the feedback to improve your answer!</p>
+                      <div className="flex flex-wrap items-center justify-center gap-4">
+                        <button onClick={handleRetry} className="px-6 py-3 rounded-lg font-bold text-lg bg-amber-500 text-white hover:bg-amber-600 shadow-md">
+                          Edit & Try Again ↺
+                        </button>
+                        
+                        {(attempts[currentStage.id] || 0) >= 3 && (
+                          <button 
+                            onClick={handleSkipStage} 
+                            className="px-6 py-3 rounded-lg font-bold text-lg shadow-md bg-stone-500 hover:bg-stone-600 text-white"
+                          >
+                            Skip Question ➔
+                          </button>
+                        )}
+                      </div>
+                      {(attempts[currentStage.id] || 0) >= 3 && (
+                        <p className="text-xs text-stone-500 italic">
+                          Since you have attempted this question {attempts[currentStage.id]} times, you can choose to skip it. You will proceed with a baseline Code 10 score.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {gameState === 'victory' && (
+              <div className="text-center space-y-6 py-12 relative overflow-hidden">
+                {calculateOverall().isLevel4 && (
+                  <div className="absolute inset-0 pointer-events-none flex justify-center items-center overflow-hidden">
+                    <div className="text-6xl animate-ping absolute top-10 left-10">🎆</div>
+                    <div className="text-6xl animate-ping absolute top-20 right-10 delay-100">🎇</div>
+                    <div className="text-6xl animate-ping absolute bottom-20 left-20 delay-200">🎆</div>
+                    <div className="text-6xl animate-ping absolute bottom-10 right-20 delay-300">🎇</div>
+                  </div>
+                )}
+
+                <div className={`text-8xl mb-4 ${calculateOverall().isLevel4 ? 'animate-bounce' : ''}`}>
+                  {calculateOverall().isLevel4 ? '🏆' : '🖋️✨'}
+                </div>
+                
+                <h2 className="text-4xl font-bold text-amber-900">Quest Completed!</h2>
+                
+                {calculateOverall().isLevel4 ? (
+                  <div className="bg-purple-100 border-2 border-purple-400 p-6 rounded-xl max-w-lg mx-auto shadow-md">
+                    <h3 className="text-2xl font-bold text-purple-800 mb-2">Level 4 Master!</h3>
+                    <p className="text-purple-700 font-medium">Incredible work, {playerName}! Your writing went above and beyond the provincial standard. You consistently included excellent details and organization!</p>
+                  </div>
+                ) : (
+                  <p className="text-xl text-stone-700 max-w-2xl mx-auto">
+                    Excellent work, {playerName}! You have mastered the art of Topic Development and Organization and earned the magical Crystal Pen!
+                  </p>
+                )}
+
+                <div className="max-w-lg mx-auto bg-stone-50 border border-stone-200 p-4 rounded-xl shadow-sm space-y-3">
+                  <h4 className="font-bold text-stone-700 uppercase text-xs tracking-wider">📊 Spreadsheet Status</h4>
+                  {sheetStatus === 'sending' && (
+                    <p className="text-blue-600 font-bold flex items-center justify-center gap-2">
+                      <span className="animate-spin inline-block">🔄</span> Submitting results...
+                    </p>
+                  )}
+                  {sheetStatus === 'success' && (
+                    <p className="text-green-600 font-bold bg-green-50 py-2 px-3 rounded-lg border border-green-200 inline-block">
+                      ✅ Results saved successfully to the teacher's spreadsheet!
+                    </p>
+                  )}
+                  {sheetStatus === 'error' && (
+                    <div className="space-y-3">
+                      <p className="text-red-600 font-bold">❌ Submission failed or timed out.</p>
+                      <button onClick={handleManualSubmit} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-md text-sm">
+                        Retry Submission 🚀
+                      </button>
+                    </div>
+                  )}
+                  {sheetStatus === 'idle' && (
+                    <button onClick={handleManualSubmit} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg shadow-md text-sm">
+                      Submit Results to Spreadsheet 🚀
+                    </button>
+                  )}
+                </div>
+
+                <div className="bg-white p-6 rounded-xl border border-stone-200 mt-8 max-w-lg mx-auto shadow-sm">
+                  <h3 className="font-bold text-stone-800 mb-4 text-xl border-b pb-2">Final Report Card</h3>
+                  <div className="space-y-3">
+                    {STAGES.map(stage => (
+                      <div key={stage.id} className="flex justify-between items-center border-b border-stone-100 pb-2">
+                        <span className="text-stone-600 font-medium text-left flex-1">
+                          {stage.type} 
+                          <span className="text-xs text-stone-400 block">Stage {stage.id}</span>
+                        </span>
+                        <div className="flex items-center gap-4">
+                           <span className="text-sm text-stone-500 bg-stone-100 px-2 py-1 rounded">
+                             Attempts: {attempts[stage.id] || 1}
+                           </span>
+                           <span className={`font-bold px-3 py-1 rounded ${scores[stage.id] >= 40 ? 'bg-purple-100 text-purple-700' : skippedStages[stage.id] ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                             Score: {scores[stage.id]} {skippedStages[stage.id] && "(Skipped)"}
+                           </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 pt-4 border-t-4 border-stone-200 flex justify-between items-center">
+                    <span className="font-bold text-stone-800 text-lg">Overall Average:</span>
+                    <span className={`font-extrabold text-3xl ${calculateOverall().isLevel4 ? 'text-purple-600' : 'text-green-600'}`}>
+                      {calculateOverall().average.toFixed(1)} <span className="text-lg text-stone-400">/ 40</span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-6 flex flex-col sm:flex-row justify-center items-center gap-4">
+                  <button onClick={() => { setCurrentStageIndex(0); setGameState('start'); setAttempts({}); setScores({}); setSkippedStages({}); setShareLink(""); setSheetStatus("idle"); }} className="px-6 py-3 rounded-lg font-bold text-lg shadow-md bg-blue-600 text-white hover:bg-blue-700">
+                    Play Again
+                  </button>
+                  <button onClick={handleSaveAndShare} className="px-6 py-3 rounded-lg font-bold text-lg shadow-md bg-stone-200 text-stone-800 hover:bg-stone-300 transition-colors">
+                    💾 Save Progress URL
+                  </button>
+                </div>
+                
+                {shareLink && (
+                  <div className="max-w-lg mx-auto bg-green-50 border border-green-200 p-3 rounded-lg mt-4 text-center shadow-sm">
+                    <p className="text-sm text-green-800 font-bold mb-1">Link generated! Copy to share your report card:</p>
+                    <input type="text" readOnly value={shareLink} className="w-full p-2 text-sm border rounded bg-white text-stone-800 focus:outline-none" onClick={e => e.target.select()} />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    const container = document.getElementById('root');
+    const root = ReactDOM.createRoot(container);
+    root.render(<App />);
+  </script>
+</body>
+</html>
