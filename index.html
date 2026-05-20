@@ -136,8 +136,9 @@
     const TRANSITION_WORDS = ["because", "first", "next", "then", "finally", "also", "another", "so", "but", "however", "therefore", "and"];
 
     // --- SIMULATED EQAO GRADER ---
-    const evaluateResponse = (text, stage) => {
-      const cleanText = text.trim();
+    const evaluateResponse = (text = "", stage) => {
+      const safeText = text || "";
+      const cleanText = safeText.trim();
       const words = cleanText.split(/\s+/).filter(w => w.length > 0);
       const wordCount = words.length;
       
@@ -147,7 +148,19 @@
       const sentenceCount = sentences.length;
       const lowerText = cleanText.toLowerCase();
 
-      const keywordHits = stage.keywords.filter(k => lowerText.includes(k)).length;
+      const safeStage = stage || STAGES[0] || {
+        id: 1,
+        npc: "🧙‍♂️ Master Scribe",
+        setting: "The Library of Lexicon",
+        story: "Welcome, apprentice.",
+        readingText: "Read carefully.",
+        question: "Answer the prompt.",
+        type: "Short Answer",
+        keywords: [],
+        minimumWords: 10
+      };
+
+      const keywordHits = (safeStage.keywords || []).filter(k => lowerText.includes(k)).length;
       const usedTransitions = TRANSITION_WORDS.filter(t => lowerText.includes(t));
       const hasTransitions = usedTransitions.length > 0;
 
@@ -190,8 +203,8 @@
       } else if (wordCount >= 10 && (!hasTransitions || keywordHits < 2) && wordCount < 30) {
         code = 20;
         annotation = "Code 20: The response is minimally developed with few ideas and little information. Organization is minimal with weak links between ideas.";
-      } else if (wordCount >= stage.minimumWords && hasTransitions && keywordHits >= 2) {
-        if (wordCount >= (stage.minimumWords + 10) && usedTransitions.length >= 2 && keywordHits >= 3 && sentenceCount >= 2) {
+      } else if (wordCount >= (safeStage.minimumWords || 10) && hasTransitions && keywordHits >= 2) {
+        if (wordCount >= ((safeStage.minimumWords || 10) + 10) && usedTransitions.length >= 2 && keywordHits >= 3 && sentenceCount >= 2) {
           code = 40;
           annotation = "Code 40: The response has a clear focus and is well-developed with sufficient specific and relevant ideas. Organization is logical with effective links.";
         } else {
@@ -205,6 +218,51 @@
 
       return { code, annotation, highlights, wordCount };
     };
+
+    // --- REAC ERROR BOUNDARY CLASS COMPONENT ---
+    class ErrorBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+      }
+
+      static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+      }
+
+      componentDidCatch(error, errorInfo) {
+        console.error("ErrorBoundary caught an error", error, errorInfo);
+      }
+
+      handleReset = () => {
+        this.setState({ hasError: false, error: null });
+        window.location.reload();
+      };
+
+      render() {
+        if (this.state.hasError) {
+          return (
+            <div className="max-w-md w-full bg-stone-100 text-stone-900 rounded-2xl shadow-2xl overflow-hidden border-4 border-red-900 mx-auto my-8 p-8 text-center space-y-6">
+              <div className="text-6xl">⚠️</div>
+              <h2 className="text-3xl font-bold text-red-900">Oops! A Little Magic Went Wrong</h2>
+              <p className="text-stone-600 leading-relaxed">
+                The game encountered an unexpected error. Don't worry, your progress is safe! Let's restart the app to fix it.
+              </p>
+              <div className="bg-red-50 p-4 rounded-lg border border-red-200 text-left text-xs font-mono overflow-auto max-h-32 text-red-800">
+                {this.state.error && this.state.error.toString()}
+              </div>
+              <button 
+                onClick={this.handleReset}
+                className="px-6 py-3 rounded-lg font-bold text-lg bg-blue-600 text-white hover:bg-blue-700 shadow-md transition-all active:scale-95"
+              >
+                Restart Game ↺
+              </button>
+            </div>
+          );
+        }
+        return this.props.children;
+      }
+    }
 
     // --- MAIN REACT COMPONENT ---
     function App() {
@@ -225,30 +283,45 @@
 
       // Auth Setup
       useEffect(() => {
-        auth.signInAnonymously().then(cred => {
-          setUser(cred.user);
-        }).catch(err => console.error("Anonymous sign-in failed", err));
+        try {
+          auth.signInAnonymously().then(cred => {
+            if (cred && cred.user) {
+              setUser(cred.user);
+            }
+          }).catch(err => {
+            console.error("Anonymous sign-in failed", err);
+            // Handle offline mock fallback user if sign-in fails
+            setUser({ uid: "local-offline-user" });
+          });
+        } catch (e) {
+          console.error("Auth initialization failed", e);
+          setUser({ uid: "local-offline-user" });
+        }
       }, []);
 
       // Load Session
       useEffect(() => {
         if (!user || !isFirebaseActive) return;
-        const urlParams = new URLSearchParams(window.location.search);
-        const sessionFromUrl = urlParams.get('session');
-        if (sessionFromUrl) {
-          db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(sessionFromUrl)
-            .get().then(docSnap => {
-              if (docSnap.exists) {
-                const data = docSnap.data();
-                setGameState(data.gameState);
-                setCurrentStageIndex(data.currentStageIndex);
-                setAttempts(data.attempts || {});
-                setScores(data.scores || {});
-                if (data.skippedStages) setSkippedStages(data.skippedStages);
-                if (data.playerName) setPlayerName(data.playerName);
-                setSessionId(sessionFromUrl);
-              }
-            }).catch(e => console.error(e));
+        try {
+          const urlParams = new URLSearchParams(window.location.search);
+          const sessionFromUrl = urlParams.get('session');
+          if (sessionFromUrl) {
+            db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(sessionFromUrl)
+              .get().then(docSnap => {
+                if (docSnap.exists) {
+                  const data = docSnap.data();
+                  setGameState(data.gameState || 'start');
+                  setCurrentStageIndex(data.currentStageIndex || 0);
+                  setAttempts(data.attempts || {});
+                  setScores(data.scores || {});
+                  if (data.skippedStages) setSkippedStages(data.skippedStages);
+                  if (data.playerName) setPlayerName(data.playerName);
+                  setSessionId(sessionFromUrl);
+                }
+              }).catch(e => console.error("Error loading session:", e));
+          }
+        } catch (e) {
+          console.error("Error setting up load session:", e);
         }
       }, [user]);
 
@@ -361,9 +434,8 @@
       const handleSaveAndShare = async () => {
         if (!user) return;
         const newSessionId = sessionId || generateUUID();
-        const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(newSessionId);
-        
         try {
+          const docRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('sessions').doc(newSessionId);
           await docRef.set({
             gameState,
             currentStageIndex,
@@ -377,7 +449,7 @@
           const newUrl = `${window.location.origin}${window.location.pathname}?session=${newSessionId}`;
           setShareLink(newUrl);
         } catch (e) {
-          console.error(e);
+          console.error("Error saving session:", e);
         }
       };
 
@@ -680,7 +752,11 @@
 
     const container = document.getElementById('root');
     const root = ReactDOM.createRoot(container);
-    root.render(<App />);
+    root.render(
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    );
   </script>
 </body>
 </html>
