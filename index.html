@@ -160,6 +160,50 @@
         minimumWords: 10
       };
 
+      // --- ANTI-CHEAT / PLAGIARISM CHECK ---
+      const readingClean = safeStage.readingText.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").replace(/\s+/g, " ");
+      const inputClean = cleanText.toLowerCase().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g,"").replace(/\s+/g, " ");
+
+      // Check 1: Direct or nearly exact paste of the entire reading text
+      if (readingClean.includes(inputClean) && wordCount > 4) {
+        return {
+          code: 10,
+          annotation: "Code 10: Copying the tablet text directly is not permitted. You must write an original response in your own words.",
+          highlights: [
+            "Plagiarism Guard: You copied directly from the tablet! Scribes must write with their own unique voice.",
+            "Tip: Start your response with your own thought, like: '" + safeStage.question.split('?')[0].replace("Why is", "").replace("Would you rather be able to", "I would rather") + "...'"
+          ],
+          wordCount
+        };
+      }
+
+      // Check 2: Copying long consecutive chunks of words (8 words or more) from the reading text
+      const readingWords = readingClean.split(" ");
+      let hasCopiedLongPhrase = false;
+      const phraseLength = 8;
+      if (readingWords.length >= phraseLength) {
+        for (let i = 0; i <= readingWords.length - phraseLength; i++) {
+          const phrase = readingWords.slice(i, i + phraseLength).join(" ");
+          if (inputClean.includes(phrase)) {
+            hasCopiedLongPhrase = true;
+            break;
+          }
+        }
+      }
+
+      if (hasCopiedLongPhrase) {
+        return {
+          code: 10,
+          annotation: "Code 10: Copying large word sequences directly from the text is not permitted. Try explaining the details using your own words.",
+          highlights: [
+            "Plagiarism Guard: It looks like you copied a whole sentence or phrase straight from the story! Try to explain it in your own words instead of copying.",
+            "Tip: Use part of the question to help start your sentence, but write the details yourself!"
+          ],
+          wordCount
+        };
+      }
+
+      // Standard grading logic if no cheating is detected
       const keywordHits = (safeStage.keywords || []).filter(k => lowerText.includes(k)).length;
       const usedTransitions = TRANSITION_WORDS.filter(t => lowerText.includes(t));
       const hasTransitions = usedTransitions.length > 0;
@@ -487,15 +531,17 @@
                   Your writing will be scored using the magic of the <strong>EQAO Scoring Guide</strong>. You must achieve a <strong>Score of 30</strong> (Level 3) or higher to pass each trial!
                 </p>
                 <div className="flex justify-center gap-4 flex-col items-center">
-                  <div className="mb-4 bg-white p-6 rounded-xl border border-stone-200 shadow-sm">
-                    <label className="block text-amber-900 font-bold mb-3 text-xl">Enter your name to begin:</label>
-                    <input 
-                      type="text" 
-                      value={playerName} 
-                      onChange={(e) => setPlayerName(e.target.value)}
-                      className="px-4 py-3 border-4 border-amber-300 rounded-xl text-xl text-center focus:outline-none focus:border-amber-500 shadow-inner w-64 text-stone-900"
-                      placeholder="Student Name"
-                    />
+                  <div className="mb-4 bg-white p-6 rounded-xl border border-stone-200 shadow-sm w-full max-w-sm flex flex-col gap-4 text-left">
+                    <div>
+                      <label className="block text-amber-900 font-bold mb-1 text-lg">Student Name:</label>
+                      <input 
+                        type="text" 
+                        value={playerName} 
+                        onChange={(e) => setPlayerName(e.target.value)}
+                        className="px-4 py-2 border-4 border-amber-300 rounded-xl text-lg focus:outline-none focus:border-amber-500 shadow-inner w-full text-stone-900"
+                        placeholder="e.g. John Doe"
+                      />
+                    </div>
                   </div>
                   <button 
                     onClick={handleStart} 
